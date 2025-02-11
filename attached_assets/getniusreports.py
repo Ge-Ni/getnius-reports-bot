@@ -7,11 +7,18 @@ from aiogram.fsm.state import State, StatesGroup
 import logging
 import sqlite3
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 
-# Настройка логирования
+# Load environment variables
+load_dotenv()
+
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 
-TOKEN = "7478918952:AAFPFkwlrOvY-Vs7rBfX4ymumm5k8w4Cxwk"  # Замените на ваш токен
+TOKEN = os.getenv("BOT_TOKEN")  # Get token from environment variables
+if not TOKEN:
+    raise ValueError("No BOT_TOKEN found in environment variables")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -183,3 +190,20 @@ if __name__ == "__main__":
         print("Бот остановлен вручную.")
     except Exception as e:
         print(f"Произошла ошибка: {e}")
+
+def add_user(user_id, category, description, website):
+    conn = sqlite3.connect('reports.db')
+    cursor = conn.cursor()
+    timestamp = datetime.now().isoformat()
+    cursor.execute("INSERT INTO users (user_id, category, description, website, created_at) VALUES (?, ?, ?, ?, ?)",
+                   (user_id, category, description, website, timestamp))
+    conn.commit()
+    conn.close()
+
+def get_all_users():
+    conn = sqlite3.connect('reports.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    users = cursor.fetchall()
+    conn.close()
+    return users
