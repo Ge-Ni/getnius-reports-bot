@@ -14,11 +14,12 @@ from database import init_db, add_user, get_reports, get_all_users, get_user
 from keyboards import get_categories_keyboard, get_profile_keyboard
 from states import Form
 from summarizer import generate_personalized_summary
+from background import keep_alive
 
-# Configure logging
+# Configure logging with more detail
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(pathname)s:%(lineno)d'
 )
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,14 @@ router = Router()
 async def start_command(message: types.Message):
     """Handle /start command"""
     try:
+        logger.info(f"Start command received from user {message.from_user.id}")
         await message.answer(
             WELCOME_MESSAGE,
             reply_markup=get_categories_keyboard()
         )
+        logger.info(f"Welcome message sent to user {message.from_user.id}")
     except Exception as e:
-        logger.error(f"Error in start command: {e}")
+        logger.error(f"Error in start command: {e}", exc_info=True)
         await message.answer("Произошла ошибка. Попробуйте позже.")
 
 async def send_report_with_summary(
@@ -217,6 +220,9 @@ async def send_regular_reports():
 async def main():
     """Main function to start the bot"""
     try:
+        logger.info("Starting Flask server for keeping the bot alive...")
+        keep_alive()  # Start the Flask server before initializing the bot
+
         logger.info("Initializing database...")
         init_db()
         logger.info("Database initialized successfully")

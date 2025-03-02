@@ -1,0 +1,12 @@
+{
+  "name": "getnius-reports-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for report distribution",
+  "main": "server.js",
+  "scripts": {
+    "start": "python bot.py"
+  },
+  "engines": {
+    "node": "16.x"
+  }
+} 
