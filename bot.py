@@ -1,14 +1,15 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types, Router
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
+from aiogram import Bot, Dispatcher, types
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters import Command
 from aiogram.types import ReplyKeyboardRemove
+from aiogram.utils import executor
 from typing import Optional
 
 from config import (
     BOT_TOKEN, WELCOME_MESSAGE, PROFILE_PROMPT, 
-    DESCRIPTION_PROMPT, WEBSITE_PROMPT, REPORT_LINKS
+    DESCRIPTION_PROMPT, WEBSITE_PROMPT, REPORT_LINKS, SUMMARIZATION_ENABLED
 )
 from database import init_db, add_user, get_reports, get_all_users, get_user
 from keyboards import get_categories_keyboard, get_profile_keyboard
@@ -25,10 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize bot and dispatcher
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-router = Router()
+dp = Dispatcher(bot)
 
-@router.message(Command("start"))
+@dp.message_handler(commands=['start'])
 async def start_command(message: types.Message):
     """Handle /start command"""
     try:
@@ -60,11 +60,11 @@ async def send_report_with_summary(
         else:
             file_info = f"\nФайл: {file_path}"
 
-        # Generate summary if user profile exists and has required data
-        if isinstance(user_data, tuple) and len(user_data) >= 3:
+        # Generate summary if enabled and user profile exists
+        if SUMMARIZATION_ENABLED and isinstance(user_data, tuple) and len(user_data) >= 3:
             _, _, description, _, _ = user_data
             summary = await generate_personalized_summary(
-                report_text=f"{title}\n{source}",  # You might want to load actual report text here
+                report_text=f"{title}\n{source}",
                 user_description=description,
                 industry=category
             )
@@ -83,7 +83,7 @@ async def send_report_with_summary(
             text="Произошла ошибка при отправке отчета. Попробуйте позже."
         )
 
-@router.message(lambda message: message.text in ["FinTech", "Automotive", "Retail", "Другие"])
+@dp.message_handler(lambda message: message.text in ["FinTech", "Automotive", "Retail", "Другие"])
 async def get_category(message: types.Message, state: FSMContext):
     """Handle category selection"""
     try:
@@ -117,22 +117,22 @@ async def get_category(message: types.Message, state: FSMContext):
         logger.error(f"Error in category selection: {e}")
         await message.answer("Произошла ошибка. Попробуйте позже.")
 
-@router.message(lambda message: message.text == "Позже")
+@dp.message_handler(lambda message: message.text == "Позже")
 async def handle_later(message: types.Message, state: FSMContext):
     """Handle 'Later' button press"""
-    await state.clear()
+    await state.finish()
     await message.answer(
         "Хорошо, вы можете создать профиль позже через команду /create_profile",
         reply_markup=get_categories_keyboard()
     )
 
-@router.message(lambda message: message.text == "Создать профиль")
+@dp.message_handler(lambda message: message.text == "Создать профиль")
 async def create_profile(message: types.Message, state: FSMContext):
     """Handle profile creation"""
+    await Form.description.set()
     await message.answer(DESCRIPTION_PROMPT, reply_markup=ReplyKeyboardRemove())
-    await state.set_state(Form.description)
 
-@router.message(Form.description)
+@dp.message_handler(state=Form.description)
 async def get_description(message: types.Message, state: FSMContext):
     """Handle product description"""
     if len(message.text) > 140:
@@ -140,10 +140,10 @@ async def get_description(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(description=message.text)
+    await Form.website.set()
     await message.answer(WEBSITE_PROMPT)
-    await state.set_state(Form.website)
 
-@router.message(Form.website)
+@dp.message_handler(state=Form.website)
 async def get_website(message: types.Message, state: FSMContext):
     """Handle website URL"""
     if not message.text.startswith(("http://", "https://")):
@@ -172,9 +172,9 @@ async def get_website(message: types.Message, state: FSMContext):
         logger.error(f"Error saving profile: {e}")
         await message.answer("Произошла ошибка при сохранении профиля. Попробуйте позже.")
     finally:
-        await state.clear()
+        await state.finish()
 
-@router.message(Command("users"))
+@dp.message_handler(commands=['users'])
 async def show_users(message: types.Message):
     """Handle /users command"""
     users = get_all_users()
@@ -217,30 +217,22 @@ async def send_regular_reports():
             logger.error(f"Error in regular reports: {e}")
             await asyncio.sleep(300)  # Wait 5 minutes before retrying
 
-async def main():
-    """Main function to start the bot"""
-    try:
-        logger.info("Starting Flask server for keeping the bot alive...")
-        keep_alive()  # Start the Flask server before initializing the bot
+async def on_startup(dp):
+    """Startup actions"""
+    logger.info("Starting Flask server for keeping the bot alive...")
+    keep_alive()  # Start the Flask server before initializing the bot
 
-        logger.info("Initializing database...")
-        init_db()
-        logger.info("Database initialized successfully")
+    logger.info("Initializing database...")
+    init_db()
+    logger.info("Database initialized successfully")
 
-        # Include router and start bot
-        dp.include_router(router)
-        await bot.delete_webhook(drop_pending_updates=True)
-        asyncio.create_task(send_regular_reports())
-
-        logger.info("Bot started successfully")
-        await dp.start_polling(bot)
-    except Exception as e:
-        logger.error(f"Error in main function: {e}")
-        raise  # Re-raise to ensure the error is visible in logs
+    asyncio.create_task(send_regular_reports())
+    logger.info("Regular reports task started")
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        logger.info("Starting bot...")
+        executor.start_polling(dp, on_startup=on_startup)
     except KeyboardInterrupt:
         logger.info("Bot stopped manually")
     except Exception as e:

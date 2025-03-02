@@ -10,8 +10,7 @@ if not BOT_TOKEN:
 
 # OpenAI configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("No OPENAI_API_KEY found in environment variables")
+SUMMARIZATION_ENABLED = bool(OPENAI_API_KEY)
 
 # Database configuration
 DATABASE_NAME = "database.db"
